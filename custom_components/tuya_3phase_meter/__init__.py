@@ -1,4 +1,4 @@
-import asyncio
+import logging
 from datetime import timedelta
 import tinytuya
 from homeassistant.config_entries import ConfigEntry
@@ -7,20 +7,24 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY
 from homeassistant.const import CONF_IP_ADDRESS
 
+_LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = TuyaMeterCoordinator(hass, entry.data)
     await coordinator.async_config_entry_first_refresh()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    for platform in PLATFORMS:
-        hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, platform))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, config):
-        super().__init__(hass, None, name=DOMAIN, update_interval=timedelta(seconds=10))
+        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=timedelta(seconds=10))
         self.config = config
         self.device = tinytuya.OutletDevice(
             config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY]
@@ -31,7 +35,9 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         try:
             data = await self.hass.async_add_executor_job(self.device.status)
             if 'dps' not in data:
+                _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
                 raise UpdateFailed("Błąd komunikacji z licznikiem")
             return data['dps']
         except Exception as err:
+            _LOGGER.error("Błąd odczytu: %s", err)
             raise UpdateFailed(f"Błąd: {err}")
