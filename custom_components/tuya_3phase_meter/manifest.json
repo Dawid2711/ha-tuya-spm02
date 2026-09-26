@@ -1,0 +1,10 @@
+{
+  "domain": "tuya_3phase_meter",
+  "name": "Tuya 3-Phase Meter (SPM02)",
+  "codeowners": ["@dawid"],
+  "config_flow": true,
+  "documentation": "https://github.com/dawid/ha-tuya-spm02",
+  "iot_class": "local_polling",
+  "requirements": ["tinytuya==1.15.0"],
+  "version": "1.0.0"
+}

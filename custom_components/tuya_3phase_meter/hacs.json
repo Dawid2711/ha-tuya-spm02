@@ -1,0 +1,5 @@
+{
+  "name": "Tuya 3-Phase Meter (SPM02)",
+  "render_readme": true,
+  "homeassistant": "2023.1.0"
+}
