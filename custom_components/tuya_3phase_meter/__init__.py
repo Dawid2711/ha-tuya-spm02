@@ -3,6 +3,7 @@ from datetime import timedelta
 import tinytuya
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY
 from homeassistant.const import CONF_IP_ADDRESS
@@ -14,20 +15,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = TuyaMeterCoordinator(hass, entry.data)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    # Get or create device in device registry using first refresh data
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.data[CONF_DEVICE_ID])},
+        manufacturer="Tuya",
+        model=coordinator.data.get("19", "SPM02"),  # From DP 19
+        name=f"Licznik {entry.data[CONF_IP_ADDRESS]}",
+    )
+    device_identifiers = device.identifiers
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": coordinator,
+        "device_identifiers": device_identifiers,
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, config):
-        # Używamy jawnego argumentu logger=
         super().__init__(
             hass,
-            logger=_LOGGER,
+            logging.getLogger(__name__),
             name=DOMAIN,
             update_interval=timedelta(seconds=10)
         )

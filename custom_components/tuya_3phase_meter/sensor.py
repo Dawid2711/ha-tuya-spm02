@@ -8,13 +8,15 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Używamy bezpośrednich ciągów znaków dla maksymalnej kompatybilności
+# Use direct strings for max compatibility with HA versions
 UNIT_VOLT = "V"
 UNIT_AMPERE = "A"
 UNIT_HERTZ = "Hz"
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
+    device_identifiers = data["device_identifiers"]
 
     # name, dp, unit, scale, device_class, state_class
     sensors_config = [
@@ -42,12 +44,36 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     entities = []
     for name, dp, unit, scale, dev_class, state_class in sensors_config:
-        entities.append(TuyaMeterSensor(coordinator, name, dp, unit, scale, dev_class, state_class, entry.entry_id))
+        entities.append(
+            TuyaMeterSensor(
+                coordinator,
+                name,
+                dp,
+                unit,
+                scale,
+                dev_class,
+                state_class,
+                entry.entry_id,
+                device_identifiers,
+            )
+        )
 
     async_add_entities(entities)
 
+
 class TuyaMeterSensor(SensorEntity):
-    def __init__(self, coordinator, name, dp, unit, scale, device_class, state_class, entry_id):
+    def __init__(
+        self,
+        coordinator,
+        name,
+        dp,
+        unit,
+        scale,
+        device_class,
+        state_class,
+        entry_id,
+        device_identifiers,
+    ):
         self.coordinator = coordinator
         self._dp = dp
         self._scale = scale
@@ -56,6 +82,10 @@ class TuyaMeterSensor(SensorEntity):
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
         self._attr_state_class = state_class
+        # Link this sensor to the device
+        self._attr_device_info = {
+            "identifiers": device_identifiers
+        }
 
     @property
     def native_value(self):
