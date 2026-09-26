@@ -1,0 +1,44 @@
+{
+  "title": "Tuya 3-Phase Meter (SPM02)",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tuya 3-Phase Meter Setup",
+        "description": "Enter your meter connection details.",
+        "data": {
+          "ip_address": "IP Address",
+          "device_id": "Device ID",
+          "local_key": "Local Key",
+          "production_sensor": "Solar Production Sensor (optional)"
+        },
+        "data_description": {
+          "production_sensor": "Entity ID of the solar production sensor (e.g. sensor.solar_total). Enables self-consumption calculation."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the meter. Check IP address, Device ID and Local Key.",
+      "unknown": "Unknown error occurred."
+    },
+    "abort": {
+      "already_configured": "This meter is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tuya 3-Phase Meter Options",
+        "description": "Configure language and production sensor.",
+        "data": {
+          "language": "Language",
+          "production_sensor": "Solar Production Sensor",
+          "refresh_interval": "Refresh interval (seconds)"
+        },
+        "data_description": {
+          "production_sensor": "Entity ID of your solar panel production sensor. Leave empty to disable self-consumption calculation.",
+          "refresh_interval": "How often to poll the meter (5-60 seconds). Lower = more data, more traffic."
+        }
+      }
+    }
+  }
+}

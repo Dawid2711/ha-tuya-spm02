@@ -1,0 +1,44 @@
+{
+  "title": "Tuya Licznik 3-fazowy (SPM02)",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Konfiguracja licznika Tuya",
+        "description": "Wprowadź dane połączenia licznika.",
+        "data": {
+          "ip_address": "Adres IP",
+          "device_id": "Device ID",
+          "local_key": "Local Key",
+          "production_sensor": "Sensor produkcji paneli (opcjonalnie)"
+        },
+        "data_description": {
+          "production_sensor": "ID encji sensora produkcji słonecznej (np. sensor.solar_total). Włącza obliczanie autokonsumpcji."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z licznikiem. Sprawdź adres IP, Device ID oraz Local Key.",
+      "unknown": "Wystąpił nieznany błąd."
+    },
+    "abort": {
+      "already_configured": "Ten licznik jest już skonfigurowany."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje licznika Tuya",
+        "description": "Skonfiguruj język i sensor produkcji.",
+        "data": {
+          "language": "Język",
+          "production_sensor": "Sensor produkcji paneli",
+          "refresh_interval": "Interwał odświeżania (sekundy)"
+        },
+        "data_description": {
+          "production_sensor": "ID encji sensora produkcji paneli słonecznych. Zostaw puste, aby wyłączyć obliczanie autokonsumpcji.",
+          "refresh_interval": "Jak często odpytywać licznik (5-60 sekund). Mniej = więcej danych, większe obciążenie sieci."
+        }
+      }
+    }
+  }
+}

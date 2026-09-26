@@ -11,18 +11,20 @@ from homeassistant.const import CONF_IP_ADDRESS
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = TuyaMeterCoordinator(hass, entry.data)
     await coordinator.async_config_entry_first_refresh()
 
-    # Get or create device in device registry using first refresh data
     device_registry = dr.async_get(hass)
     device = device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.data[CONF_DEVICE_ID])},
         manufacturer="Tuya",
-        model=coordinator.data.get("19", "SPM02"),  # From DP 19
-        name=f"Licznik {entry.data[CONF_IP_ADDRESS]}",
+        model=coordinator.data.get("19", "SPM02"),
+        name=f"Licznik 3-fazowy",
+        sw_version=f"FW: {coordinator.data.get('32', '?')}",
+        configuration_url=f"http://{entry.data[CONF_IP_ADDRESS]}",
     )
     device_identifiers = device.identifiers
 
@@ -35,8 +37,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, config):
@@ -44,7 +48,7 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
             hass,
             logging.getLogger(__name__),
             name=DOMAIN,
-            update_interval=timedelta(seconds=10)
+            update_interval=timedelta(seconds=10),
         )
         self.config = config
         self.device = tinytuya.OutletDevice(
@@ -56,7 +60,7 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         try:
             data = await self.hass.async_add_executor_job(self.device.status)
             if data is None or 'dps' not in data:
-                _LOGGER.error("Błąd komunikacji z licznikiem (brak danych): %s", data)
+                _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
                 raise UpdateFailed("Błąd komunikacji z licznikiem")
             return data['dps']
         except Exception as err:

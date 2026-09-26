@@ -5,10 +5,10 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Direct strings for max HA compatibility
 UNIT_VOLT = "V"
 UNIT_AMPERE = "A"
 UNIT_HERTZ = "Hz"
+UNIT_PF = "PF"
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -19,51 +19,41 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     sensors_config = [
         # Ogólne
-        ("Total Energy Forward", "1", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
-        ("Total Energy Reverse", "23", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
-        ("Frequency", "32", UNIT_HERTZ, 100, None, SensorStateClass.MEASUREMENT),
-        ("Power Factor", "50", None, 100, None, SensorStateClass.MEASUREMENT),
+        ("Total Energy Forward", "1", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, "mdi:meter-electric"),
+        ("Total Energy Reverse", "23", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, "mdi:meter-electric-outline"),
+        ("Frequency", "32", UNIT_HERTZ, 100, None, SensorStateClass.MEASUREMENT, "mdi:sine-wave"),
+        ("Power Factor", "50", UNIT_PF, 100, None, SensorStateClass.MEASUREMENT, "mdi:cosine-wave"),
 
         # Faza L1
-        ("Voltage L1", "102", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
-        ("Current L1", "103", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
-        ("Power L1", "104", UnitOfPower.WATT, 1, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+        ("Voltage L1", "102", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, "mdi:lightning-bolt"),
+        ("Current L1", "103", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT, "mdi:current-ac"),
+        ("Power L1", "104", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "mdi:flash"),
 
         # Faza L2
-        ("Voltage L2", "105", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
-        ("Current L2", "106", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
-        ("Power L2", "107", UnitOfPower.WATT, 1, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+        ("Voltage L2", "105", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, "mdi:lightning-bolt"),
+        ("Current L2", "106", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT, "mdi:current-ac"),
+        ("Power L2", "107", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "mdi:flash"),
 
         # Faza L3
-        ("Voltage L3", "108", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
-        ("Current L3", "109", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
-        ("Power L3", "110", UnitOfPower.WATT, 1, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+        ("Voltage L3", "108", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, "mdi:lightning-bolt"),
+        ("Current L3", "109", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT, "mdi:current-ac"),
+        ("Power L3", "110", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "mdi:flash"),
     ]
 
     entities = []
-    for name, dp, unit, scale, dev_class, state_class in sensors_config:
+    for name, dp, unit, scale, dev_class, state_class, icon in sensors_config:
         entities.append(
             TuyaMeterSensor(
-                coordinator,
-                name,
-                dp,
-                unit,
-                scale,
-                dev_class,
-                state_class,
-                entry.entry_id,
-                device_identifiers,
+                coordinator, name, dp, unit, scale, dev_class,
+                state_class, entry.entry_id, device_identifiers, icon,
             )
         )
 
-    # Autokonsumpcja – dodaj tylko jeśli użytkownik podał sensor produkcji
+    # Autokonsumpcja
     if production_sensor:
         entities.append(
             TuyaSelfConsumptionSensor(
-                coordinator,
-                production_sensor,
-                entry.entry_id,
-                device_identifiers,
+                coordinator, production_sensor, entry.entry_id, device_identifiers,
             )
         )
 
@@ -71,18 +61,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class TuyaMeterSensor(SensorEntity):
-    def __init__(
-        self,
-        coordinator,
-        name,
-        dp,
-        unit,
-        scale,
-        device_class,
-        state_class,
-        entry_id,
-        device_identifiers,
-    ):
+    def __init__(self, coordinator, name, dp, unit, scale,
+                 device_class, state_class, entry_id,
+                 device_identifiers, icon):
         self.coordinator = coordinator
         self._dp = dp
         self._scale = scale
@@ -92,6 +73,7 @@ class TuyaMeterSensor(SensorEntity):
         self._attr_device_class = device_class
         self._attr_state_class = state_class
         self._attr_device_info = {"identifiers": device_identifiers}
+        self._attr_icon = icon
 
     @property
     def native_value(self):
@@ -107,12 +89,7 @@ class TuyaMeterSensor(SensorEntity):
 
 class TuyaSelfConsumptionSensor(SensorEntity):
     """
-    Sensor autokonsumpcji:
     Autokonsumpcja = Produkcja z paneli - Energia oddana do sieci
-
-    Działa tylko gdy użytkownik w konfiguracji podał sensor produkcji PV.
-    Wymaga, by oba sensory (produkcja i energia oddana) miały wartości
-    w kWh i rosły w czasie (state_class: total_increasing).
     """
     def __init__(self, coordinator, production_sensor_entity, entry_id, device_identifiers):
         self.coordinator = coordinator
@@ -127,13 +104,11 @@ class TuyaSelfConsumptionSensor(SensorEntity):
 
     @property
     def native_value(self):
-        # Pobierz energie oddana z naszego licznika (DP 23, skala 100)
         export_raw = self.coordinator.data.get("23")
         if export_raw is None:
             return None
         export_kwh = export_raw / 100.0
 
-        # Pobierz produkcje z paneli z sensora uzytkownika
         prod_state = self.coordinator.hass.states.get(self._production_entity)
         if prod_state is None:
             return None
@@ -142,11 +117,9 @@ class TuyaSelfConsumptionSensor(SensorEntity):
         except (ValueError, TypeError):
             return None
 
-        # Autokonsumpcja = Produkcja - Eksport (nigdy nie może być ujemna)
         consumption = production_kwh - export_kwh
         if consumption < 0:
             consumption = 0.0
-
         return round(consumption, 3)
 
     @property
@@ -160,7 +133,6 @@ class TuyaSelfConsumptionSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        """Dodatkowe atrybuty – pokazuj składniki obliczeń."""
         export_raw = self.coordinator.data.get("23")
         export_kwh = round(export_raw / 100.0, 3) if export_raw is not None else None
         prod_state = self.coordinator.hass.states.get(self._production_entity)
@@ -170,7 +142,6 @@ class TuyaSelfConsumptionSensor(SensorEntity):
                 prod_kwh = round(float(prod_state.state), 3)
             except (ValueError, TypeError):
                 pass
-
         return {
             "Production (kWh)": prod_kwh,
             "Grid Export (kWh)": export_kwh,
