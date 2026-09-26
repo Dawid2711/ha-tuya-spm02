@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY
+from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_PRODUCTION_SENSOR
 from homeassistant.const import CONF_IP_ADDRESS
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
         "device_identifiers": device_identifiers,
+        "production_sensor": entry.data.get(CONF_PRODUCTION_SENSOR),
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

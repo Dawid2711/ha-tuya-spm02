@@ -1,6 +1,6 @@
 import voluptuous as vol
 from homeassistant import config_entries
-from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY
+from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_PRODUCTION_SENSOR
 from homeassistant.const import CONF_IP_ADDRESS
 
 class Tuya3PhaseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -14,5 +14,6 @@ class Tuya3PhaseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_IP_ADDRESS): str,
                 vol.Required(CONF_DEVICE_ID): str,
                 vol.Required(CONF_LOCAL_KEY): str,
+                vol.Optional(CONF_PRODUCTION_SENSOR): str,
             })
         )

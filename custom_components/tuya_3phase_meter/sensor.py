@@ -1,24 +1,22 @@
 import logging
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
-from homeassistant.const import (
-    UnitOfEnergy,
-    UnitOfPower,
-)
+from homeassistant.const import UnitOfEnergy, UnitOfPower
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Use direct strings for max compatibility with HA versions
+# Direct strings for max HA compatibility
 UNIT_VOLT = "V"
 UNIT_AMPERE = "A"
 UNIT_HERTZ = "Hz"
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     device_identifiers = data["device_identifiers"]
+    production_sensor = data.get("production_sensor")
 
-    # name, dp, unit, scale, device_class, state_class
     sensors_config = [
         # Ogólne
         ("Total Energy Forward", "1", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
@@ -58,6 +56,17 @@ async def async_setup_entry(hass, entry, async_add_entities):
             )
         )
 
+    # Autokonsumpcja – dodaj tylko jeśli użytkownik podał sensor produkcji
+    if production_sensor:
+        entities.append(
+            TuyaSelfConsumptionSensor(
+                coordinator,
+                production_sensor,
+                entry.entry_id,
+                device_identifiers,
+            )
+        )
+
     async_add_entities(entities)
 
 
@@ -82,10 +91,7 @@ class TuyaMeterSensor(SensorEntity):
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
         self._attr_state_class = state_class
-        # Link this sensor to the device
-        self._attr_device_info = {
-            "identifiers": device_identifiers
-        }
+        self._attr_device_info = {"identifiers": device_identifiers}
 
     @property
     def native_value(self):
@@ -97,3 +103,76 @@ class TuyaMeterSensor(SensorEntity):
     @property
     def available(self):
         return self.coordinator.last_update_success
+
+
+class TuyaSelfConsumptionSensor(SensorEntity):
+    """
+    Sensor autokonsumpcji:
+    Autokonsumpcja = Produkcja z paneli - Energia oddana do sieci
+
+    Działa tylko gdy użytkownik w konfiguracji podał sensor produkcji PV.
+    Wymaga, by oba sensory (produkcja i energia oddana) miały wartości
+    w kWh i rosły w czasie (state_class: total_increasing).
+    """
+    def __init__(self, coordinator, production_sensor_entity, entry_id, device_identifiers):
+        self.coordinator = coordinator
+        self._production_entity = production_sensor_entity
+        self._attr_name = "Self Consumption"
+        self._attr_unique_id = f"{entry_id}_self_consumption"
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._attr_device_info = {"identifiers": device_identifiers}
+        self._attr_icon = "mdi:solar-power"
+
+    @property
+    def native_value(self):
+        # Pobierz energie oddana z naszego licznika (DP 23, skala 100)
+        export_raw = self.coordinator.data.get("23")
+        if export_raw is None:
+            return None
+        export_kwh = export_raw / 100.0
+
+        # Pobierz produkcje z paneli z sensora uzytkownika
+        prod_state = self.coordinator.hass.states.get(self._production_entity)
+        if prod_state is None:
+            return None
+        try:
+            production_kwh = float(prod_state.state)
+        except (ValueError, TypeError):
+            return None
+
+        # Autokonsumpcja = Produkcja - Eksport (nigdy nie może być ujemna)
+        consumption = production_kwh - export_kwh
+        if consumption < 0:
+            consumption = 0.0
+
+        return round(consumption, 3)
+
+    @property
+    def available(self):
+        prod_state = self.coordinator.hass.states.get(self._production_entity)
+        return (
+            self.coordinator.last_update_success
+            and prod_state is not None
+            and prod_state.state not in ("unknown", "unavailable")
+        )
+
+    @property
+    def extra_state_attributes(self):
+        """Dodatkowe atrybuty – pokazuj składniki obliczeń."""
+        export_raw = self.coordinator.data.get("23")
+        export_kwh = round(export_raw / 100.0, 3) if export_raw is not None else None
+        prod_state = self.coordinator.hass.states.get(self._production_entity)
+        prod_kwh = None
+        if prod_state is not None:
+            try:
+                prod_kwh = round(float(prod_state.state), 3)
+            except (ValueError, TypeError):
+                pass
+
+        return {
+            "Production (kWh)": prod_kwh,
+            "Grid Export (kWh)": export_kwh,
+            "Production Sensor": self._production_entity,
+        }
