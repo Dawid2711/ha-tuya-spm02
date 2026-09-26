@@ -24,7 +24,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, config):
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=timedelta(seconds=10))
+        # Używamy jawnego argumentu logger=
+        super().__init__(
+            hass,
+            logger=_LOGGER,
+            name=DOMAIN,
+            update_interval=timedelta(seconds=10)
+        )
         self.config = config
         self.device = tinytuya.OutletDevice(
             config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY]
@@ -34,8 +40,8 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         try:
             data = await self.hass.async_add_executor_job(self.device.status)
-            if 'dps' not in data:
-                _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
+            if data is None or 'dps' not in data:
+                _LOGGER.error("Błąd komunikacji z licznikiem (brak danych): %s", data)
                 raise UpdateFailed("Błąd komunikacji z licznikiem")
             return data['dps']
         except Exception as err:
