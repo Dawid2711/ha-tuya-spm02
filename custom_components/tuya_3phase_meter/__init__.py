@@ -32,20 +32,30 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         )
         self.config = config
         self.last_update_time = None
-        self.device = tinytuya.OutletDevice(
+        self.device = tinytuya.Device(
             config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY]
         )
         self.device.set_version(3.5)
+        self.device.set_socketTimeout(8)
+        # Licznik trzyma stare wartości, dopóki nie poprosisz o konkretne DP.
+        self._refresh_dps = [1, 23, 32, 50, 102, 103, 104, 105, 106, 107, 108, 109, 110]
+
+    def _read_meter(self):
+        """Wymuś świeży pomiar, potem odczytaj status."""
+        try:
+            self.device.updatedps(self._refresh_dps)
+        except Exception as err:
+            _LOGGER.debug("updatedps nieudane, idę dalej do status(): %s", err)
+        return self.device.status()
 
     async def _async_update_data(self):
         try:
-            data = await self.hass.async_add_executor_job(self.device.status)
-            if data is None or 'dps' not in data:
+            data = await self.hass.async_add_executor_job(self._read_meter)
+            if data is None or "dps" not in data:
                 _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
                 raise UpdateFailed("Błąd komunikacji z licznikiem")
-            # timezone.utc — obowiązkowe dla sensorów TIMESTAMP w HA
             self.last_update_time = datetime.now(timezone.utc)
-            return data['dps']
+            return data["dps"]
         except Exception as err:
             _LOGGER.error("Błąd odczytu: %s", err)
             raise UpdateFailed(f"Błąd: {err}")
