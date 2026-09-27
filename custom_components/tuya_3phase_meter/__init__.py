@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime, timedelta, timezone
 import tinytuya
+import threading
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY
 from homeassistant.const import CONF_IP_ADDRESS
 
@@ -11,10 +11,27 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    coordinator = TuyaMeterCoordinator(hass, entry.data)
-    await coordinator.async_config_entry_first_refresh()
+    config = entry.data
+    coordinator = TuyaMeterCoordinator(hass, config)
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"coordinator": coordinator}
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    # Inicjalizacja połączenia
+    device = tinytuya.Device(config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY])
+    device.set_version(3.5)
+    device.set_socketPersistent(True)
+    device.set_socketTimeout(15)
+
+    def data_callback(data):
+        if data and 'dps' in data:
+            _LOGGER.debug("Otrzymano dane: %s", data['dps'])
+            hass.add_job(coordinator.async_set_updated_data, data['dps'])
+
+    device.add_has_returned_data_callback(data_callback)
+
+    # Uruchamiamy słuchanie w wątku
+    thread = threading.Thread(target=device.listen, daemon=True)
+    thread.start()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -28,41 +45,6 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=3)
+            update_interval=None # Nie używamy pollingu!
         )
-        self.config = config
-        self.last_update_time = None
-        self._refresh_dps = [1, 23, 32, 50, 102, 103, 104, 105, 106, 107, 108, 109, 110]
-
-    def _read_meter(self):
-        """Tworzy świeże połączenie za każdym razem — gwarancja aktualności."""
-        try:
-            device = tinytuya.Device(
-                self.config[CONF_DEVICE_ID],
-                self.config[CONF_IP_ADDRESS],
-                self.config[CONF_LOCAL_KEY]
-            )
-            device.set_version(3.5)
-            device.set_socketTimeout(5)
-
-            # Wymuś odświeżenie danych DPS i pobierz status
-            device.updatedps(self._refresh_dps, nowait=True)
-            data = device.status()
-
-            return data
-        except Exception as err:
-            _LOGGER.debug("Błąd w _read_meter: %s", err)
-            return {}
-
-    async def _async_update_data(self):
-        try:
-            data = await self.hass.async_add_executor_job(self._read_meter)
-            if data is None or "dps" not in data:
-                _LOGGER.warning("Licznik nie zwrócił danych DPS")
-                return {}
-
-            self.last_update_time = datetime.now(timezone.utc)
-            return data["dps"]
-        except Exception as err:
-            _LOGGER.error("Błąd koordynatora: %s", err)
-            raise UpdateFailed(f"Błąd: {err}")
+        self.data = {}
