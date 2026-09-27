@@ -1,69 +1,50 @@
 import logging
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
-from homeassistant.const import UnitOfEnergy, UnitOfPower
+from homeassistant.const import (
+    UnitOfEnergy,
+    UnitOfPower,
+)
 from .const import DOMAIN
+from datetime import datetime
 
 _LOGGER = logging.getLogger(__name__)
 
+# Używamy bezpośrednich ciągów znaków dla maksymalnej kompatybilności
 UNIT_VOLT = "V"
 UNIT_AMPERE = "A"
 UNIT_HERTZ = "Hz"
-UNIT_PF = "PF"
-
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
-    device_identifiers = data["device_identifiers"]
-    production_sensor = data.get("production_sensor")
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
     sensors_config = [
-        # Ogólne
-        ("Total Energy Forward", "1", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, "mdi:meter-electric"),
-        ("Total Energy Reverse", "23", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, "mdi:meter-electric-outline"),
-        ("Frequency", "32", UNIT_HERTZ, 100, None, SensorStateClass.MEASUREMENT, "mdi:sine-wave"),
-        ("Power Factor", "50", UNIT_PF, 100, None, SensorStateClass.MEASUREMENT, "mdi:cosine-wave"),
-
-        # Faza L1
-        ("Voltage L1", "102", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, "mdi:lightning-bolt"),
-        ("Current L1", "103", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT, "mdi:current-ac"),
-        ("Power L1", "104", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "mdi:flash"),
-
-        # Faza L2
-        ("Voltage L2", "105", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, "mdi:lightning-bolt"),
-        ("Current L2", "106", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT, "mdi:current-ac"),
-        ("Power L2", "107", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "mdi:flash"),
-
-        # Faza L3
-        ("Voltage L3", "108", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, "mdi:lightning-bolt"),
-        ("Current L3", "109", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT, "mdi:current-ac"),
-        ("Power L3", "110", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, "mdi:flash"),
+        ("Total Energy Forward", "1", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        ("Total Energy Reverse", "23", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        ("Frequency", "32", UNIT_HERTZ, 100, None, SensorStateClass.MEASUREMENT),
+        ("Power Factor", "50", None, 100, None, SensorStateClass.MEASUREMENT),
+        ("Voltage L1", "102", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
+        ("Current L1", "103", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
+        ("Power L1", "104", UnitOfPower.WATT, 1, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+        ("Voltage L2", "105", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
+        ("Current L2", "106", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
+        ("Power L2", "107", UnitOfPower.WATT, 1, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+        ("Voltage L3", "108", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
+        ("Current L3", "109", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
+        ("Power L3", "110", UnitOfPower.WATT, 1, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
     ]
 
-    entities = []
-    for name, dp, unit, scale, dev_class, state_class, icon in sensors_config:
-        entities.append(
-            TuyaMeterSensor(
-                coordinator, name, dp, unit, scale, dev_class,
-                state_class, entry.entry_id, device_identifiers, icon,
-            )
-        )
+    entities = [
+        TuyaMeterSensor(coordinator, name, dp, unit, scale, dev_class, state_class, entry.entry_id)
+        for name, dp, unit, scale, dev_class, state_class in sensors_config
+    ]
 
-    # Autokonsumpcja — tylko jeśli podano sensor produkcji
-    if production_sensor:
-        entities.append(
-            TuyaSelfConsumptionSensor(
-                coordinator, production_sensor, entry.entry_id, device_identifiers,
-            )
-        )
+    # Dodajemy sensor ostatniej aktualizacji
+    entities.append(LastUpdateSensor(coordinator, entry.entry_id))
 
     async_add_entities(entities)
 
-
 class TuyaMeterSensor(SensorEntity):
-    def __init__(self, coordinator, name, dp, unit, scale,
-                 device_class, state_class, entry_id,
-                 device_identifiers, icon):
+    def __init__(self, coordinator, name, dp, unit, scale, device_class, state_class, entry_id):
         self.coordinator = coordinator
         self._dp = dp
         self._scale = scale
@@ -72,8 +53,7 @@ class TuyaMeterSensor(SensorEntity):
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
         self._attr_state_class = state_class
-        self._attr_device_info = {"identifiers": device_identifiers}
-        self._attr_icon = icon
+        self._attr_device_info = {"identifiers": {(DOMAIN, entry_id)}}
 
     @property
     def native_value(self):
@@ -86,91 +66,14 @@ class TuyaMeterSensor(SensorEntity):
     def available(self):
         return self.coordinator.last_update_success
 
-
-class TuyaSelfConsumptionSensor(SensorEntity):
-    """
-    Autokonsumpcja = Produkcja z paneli - Energia oddana do sieci.
-    Słucha zmian na sensorze produkcji i aktualizuje się na bieżąco.
-    """
-    def __init__(self, coordinator, production_entity, entry_id, device_identifiers):
+class LastUpdateSensor(SensorEntity):
+    def __init__(self, coordinator, entry_id):
         self.coordinator = coordinator
-        self._production_entity = production_entity
-        self._attr_name = "Self Consumption"
-        self._attr_unique_id = f"{entry_id}_self_consumption"
-        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-        self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
-        self._attr_device_info = {"identifiers": device_identifiers}
-        self._attr_icon = "mdi:solar-power"
-        # Podłączamy obserwatora zmian
-        self._unsub = None
-
-    async def async_added_to_hass(self):
-        """Gdy sensor trafi do HA — nasłuchuj zmian na sensorze produkcji."""
-        await super().async_added_to_hass()
-
-        async def _on_production_change(event):
-            # Odczytaj najnowszy stan i odśwież dane
-            self.async_write_ha_state()
-
-        # Obserwuj konkretny sensor produkcji
-        self._unsub = self.coordinator.hass.helpers.event.async_track_state_change(
-            self._production_entity,
-            _on_production_change,
-            old_state=None,
-            new_state=None
-        )
-
-    async def async_will_remove_from_hass(self):
-        """Czyść obserwatora przy usuwaniu."""
-        if self._unsub:
-            self._unsub()
-            self._unsub = None
-        await super().async_will_remove_from_hass()
+        self._attr_name = "Ostatnia aktualizacja"
+        self._attr_unique_id = f"{entry_id}_last_update"
+        self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._attr_device_info = {"identifiers": {(DOMAIN, entry_id)}}
 
     @property
     def native_value(self):
-        export_raw = self.coordinator.data.get("23")
-        if export_raw is None:
-            return None
-        export_kwh = export_raw / 100.0
-
-        prod_state = self.coordinator.hass.states.get(self._production_entity)
-        if prod_state is None or prod_state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            production_kwh = float(prod_state.state)
-        except (ValueError, TypeError):
-            return None
-
-        consumption = production_kwh - export_kwh
-        if consumption < 0:
-            consumption = 0.0
-        return round(consumption, 3)
-
-    @property
-    def available(self):
-        # Dostępność = koordynator jest dostępny + sensor produkcji istnieje i jest poprawny
-        if not self.coordinator.last_update_success:
-            return False
-        prod_state = self.coordinator.hass.states.get(self._production_entity)
-        if prod_state is None:
-            return False
-        return prod_state.state not in ("unknown", "unavailable")
-
-    @property
-    def extra_state_attributes(self):
-        export_raw = self.coordinator.data.get("23")
-        export_kwh = round(export_raw / 100.0, 3) if export_raw is not None else None
-        prod_state = self.coordinator.hass.states.get(self._production_entity)
-        prod_kwh = None
-        if prod_state is not None and prod_state.state not in ("unknown", "unavailable"):
-            try:
-                prod_kwh = round(float(prod_state.state), 3)
-            except (ValueError, TypeError):
-                pass
-        return {
-            "Production (kWh)": prod_kwh,
-            "Grid Export (kWh)": export_kwh,
-            "Production Sensor": self._production_entity,
-        }
+        return self.coordinator.last_update_success_time
