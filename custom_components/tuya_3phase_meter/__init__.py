@@ -1,7 +1,6 @@
 import logging
-import threading
+import asyncio
 import tinytuya
-from datetime import datetime, timezone
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -12,8 +11,19 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    coordinator = TuyaMeterCoordinator(hass, entry.data)
+    config = entry.data
+    # Inicjalizacja urządzenia
+    device = tinytuya.Device(config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY])
+    device.set_version(3.5)
+    device.set_socketPersistent(True)
+    device.set_socketTimeout(15)
+
+    coordinator = TuyaMeterCoordinator(hass, device)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    # Uruchamiamy słuchacza w tle
+    hass.loop.create_task(coordinator.listen_task())
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -23,34 +33,29 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, config):
+    def __init__(self, hass, device):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None)
-        self.config = config
-        self.hass = hass
-        self.data = {} # Tu będziemy przechowywać scalone dane
-        self.last_update_time = None
+        self.device = device
+        self.data = {}
         self.running = True
 
-        self.device = tinytuya.Device(config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY])
-        self.device.set_version(3.5)
-        self.device.set_socketPersistent(True)
-
-        self.thread = threading.Thread(target=self._listen_loop, daemon=True)
-        self.thread.start()
-
-    def _listen_loop(self):
+    async def listen_task(self):
+        _LOGGER.info("Uruchomiono Asynchroniczny Słuchacz TCP")
         while self.running:
             try:
-                data = self.device.receive()
+                # Wykonujemy blokujący odczyt w osobnym wątku, aby nie blokować HA
+                data = await self.hass.async_add_executor_job(self.device.receive)
                 if data and 'dps' in data:
-                    self.data.update(data['dps']) # ŁĄCZYMY NOWE DANE ZE STARYMI
-                    self.last_update_time = datetime.now(timezone.utc)
-                    self.hass.add_job(self.async_set_updated_data, self.data)
-                self.device.heartbeat(nowait=True)
-            except Exception as err:
-                _LOGGER.debug("Socket listener error: %s", err)
-                try: self.device.socket.close()
-                except: pass
+                    _LOGGER.debug("Otrzymano dane: %s", data['dps'])
+                    self.data.update(data['dps'])
+                    self.async_set_updated_data(self.data)
+
+                # Heartbeat dla podtrzymania połączenia
+                await self.hass.async_add_executor_job(self.device.heartbeat, True)
+                await asyncio.sleep(1)
+            except Exception as e:
+                _LOGGER.debug("Błąd słuchacza: %s", e)
+                await asyncio.sleep(5)
 
     def stop(self):
         self.running = False
