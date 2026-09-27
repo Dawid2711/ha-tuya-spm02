@@ -27,6 +27,7 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None)
         self.config = config
         self.hass = hass
+        self.data = {} # Tu będziemy przechowywać scalone dane
         self.last_update_time = None
         self.running = True
 
@@ -42,8 +43,9 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
             try:
                 data = self.device.receive()
                 if data and 'dps' in data:
+                    self.data.update(data['dps']) # ŁĄCZYMY NOWE DANE ZE STARYMI
                     self.last_update_time = datetime.now(timezone.utc)
-                    self.hass.add_job(self.async_set_updated_data, data['dps'])
+                    self.hass.add_job(self.async_set_updated_data, self.data)
                 self.device.heartbeat(nowait=True)
             except Exception as err:
                 _LOGGER.debug("Socket listener error: %s", err)
