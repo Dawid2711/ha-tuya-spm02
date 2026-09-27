@@ -32,43 +32,35 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         )
         self.config = config
         self.last_update_time = None
-        self.device = tinytuya.OutletDevice(
+
+        # Inicjalizacja z wyłączoną trwałością połączenia
+        self.device = tinytuya.Device(
             config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY]
         )
         self.device.set_version(3.5)
-        self.device.set_socketTimeout(8)
+        self.device.set_socketTimeout(5)
+        self.device.set_socketPersistent(False) # Kluczowe: nowe połączenie za każdym razem
         self._refresh_dps = [1, 23, 32, 50, 102, 103, 104, 105, 106, 107, 108, 109, 110]
 
     def _read_meter(self):
-        """Wymuś świeży pomiar, potem odczytaj status."""
         try:
-            # Wyślij heartbeat bez czekania na odpowiedź
-            self.device.heartbeat(nowait=True)
-        except Exception:
-            pass
-        try:
-            # Wyślij prośbę o aktualizację DPS bez czekania
-            # (urządzenie i tak zaktualizuje swoje DPS wkrótce)
+            # Wymuszamy odświeżenie danych DPS
             self.device.updatedps(self._refresh_dps, nowait=True)
-        except Exception:
-            pass
-        # Odczytaj status — to jest główny call
-        try:
             data = self.device.status()
-            _LOGGER.debug("Surowe dane z licznika: %s", data)
             return data
         except Exception as err:
-            _LOGGER.debug("status() nieudany: %s", err)
+            _LOGGER.debug("Błąd odczytu: %s", err)
             return {}
 
     async def _async_update_data(self):
         try:
             data = await self.hass.async_add_executor_job(self._read_meter)
             if data is None or "dps" not in data:
-                _LOGGER.warning("Licznik nie zwrócił danych DPS: %s", data)
+                _LOGGER.warning("Brak danych DPS")
                 return {}
+
             self.last_update_time = datetime.now(timezone.utc)
             return data["dps"]
         except Exception as err:
-            _LOGGER.error("Błąd odczytu: %s", err)
+            _LOGGER.error("Błąd koordynatora: %s", err)
             raise UpdateFailed(f"Błąd: {err}")
