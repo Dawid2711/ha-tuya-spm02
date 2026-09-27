@@ -28,7 +28,7 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=10)
+            update_interval=timedelta(seconds=3)
         )
         self.config = config
         self.last_update_time = None
