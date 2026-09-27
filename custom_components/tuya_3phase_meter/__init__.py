@@ -13,14 +13,12 @@ PLATFORMS = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = TuyaMeterCoordinator(hass, entry.data)
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"coordinator": coordinator}
-
-    # Koordynator jest aktualizowany przez wątek w tle, nie przez polling
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator = hass.data[DOMAIN][entry.entry_id]
     coordinator.stop()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
@@ -42,25 +40,17 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
     def _listen_loop(self):
         while self.running:
             try:
-                # Nasłuchuj na dane PUSH od licznika
                 data = self.device.receive()
                 if data and 'dps' in data:
                     self.last_update_time = datetime.now(timezone.utc)
                     self.hass.add_job(self.async_set_updated_data, data['dps'])
-
-                # Heartbeat żeby utrzymać połączenie
                 self.device.heartbeat(nowait=True)
-
             except Exception as err:
                 _LOGGER.debug("Socket listener error: %s", err)
-                try:
-                    self.device.socket.close()
-                except Exception:
-                    pass
+                try: self.device.socket.close()
+                except: pass
 
     def stop(self):
         self.running = False
-        try:
-            self.device.socket.close()
-        except Exception:
-            pass
+        try: self.device.socket.close()
+        except: pass
