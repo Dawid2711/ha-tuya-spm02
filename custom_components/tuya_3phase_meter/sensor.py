@@ -49,7 +49,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             )
         )
 
-    # Autokonsumpcja
+    # Autokonsumpcja — tylko jeśli podano sensor produkcji
     if production_sensor:
         entities.append(
             TuyaSelfConsumptionSensor(
@@ -89,11 +89,12 @@ class TuyaMeterSensor(SensorEntity):
 
 class TuyaSelfConsumptionSensor(SensorEntity):
     """
-    Autokonsumpcja = Produkcja z paneli - Energia oddana do sieci
+    Autokonsumpcja = Produkcja z paneli - Energia oddana do sieci.
+    Słucha zmian na sensorze produkcji i aktualizuje się na bieżąco.
     """
-    def __init__(self, coordinator, production_sensor_entity, entry_id, device_identifiers):
+    def __init__(self, coordinator, production_entity, entry_id, device_identifiers):
         self.coordinator = coordinator
-        self._production_entity = production_sensor_entity
+        self._production_entity = production_entity
         self._attr_name = "Self Consumption"
         self._attr_unique_id = f"{entry_id}_self_consumption"
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -101,6 +102,31 @@ class TuyaSelfConsumptionSensor(SensorEntity):
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_device_info = {"identifiers": device_identifiers}
         self._attr_icon = "mdi:solar-power"
+        # Podłączamy obserwatora zmian
+        self._unsub = None
+
+    async def async_added_to_hass(self):
+        """Gdy sensor trafi do HA — nasłuchuj zmian na sensorze produkcji."""
+        await super().async_added_to_hass()
+
+        async def _on_production_change(event):
+            # Odczytaj najnowszy stan i odśwież dane
+            self.async_write_ha_state()
+
+        # Obserwuj konkretny sensor produkcji
+        self._unsub = self.coordinator.hass.helpers.event.async_track_state_change(
+            self._production_entity,
+            _on_production_change,
+            old_state=None,
+            new_state=None
+        )
+
+    async def async_will_remove_from_hass(self):
+        """Czyść obserwatora przy usuwaniu."""
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        await super().async_will_remove_from_hass()
 
     @property
     def native_value(self):
@@ -110,7 +136,7 @@ class TuyaSelfConsumptionSensor(SensorEntity):
         export_kwh = export_raw / 100.0
 
         prod_state = self.coordinator.hass.states.get(self._production_entity)
-        if prod_state is None:
+        if prod_state is None or prod_state.state in ("unknown", "unavailable"):
             return None
         try:
             production_kwh = float(prod_state.state)
@@ -124,12 +150,13 @@ class TuyaSelfConsumptionSensor(SensorEntity):
 
     @property
     def available(self):
+        # Dostępność = koordynator jest dostępny + sensor produkcji istnieje i jest poprawny
+        if not self.coordinator.last_update_success:
+            return False
         prod_state = self.coordinator.hass.states.get(self._production_entity)
-        return (
-            self.coordinator.last_update_success
-            and prod_state is not None
-            and prod_state.state not in ("unknown", "unavailable")
-        )
+        if prod_state is None:
+            return False
+        return prod_state.state not in ("unknown", "unavailable")
 
     @property
     def extra_state_attributes(self):
@@ -137,7 +164,7 @@ class TuyaSelfConsumptionSensor(SensorEntity):
         export_kwh = round(export_raw / 100.0, 3) if export_raw is not None else None
         prod_state = self.coordinator.hass.states.get(self._production_entity)
         prod_kwh = None
-        if prod_state is not None:
+        if prod_state is not None and prod_state.state not in ("unknown", "unavailable"):
             try:
                 prod_kwh = round(float(prod_state.state), 3)
             except (ValueError, TypeError):

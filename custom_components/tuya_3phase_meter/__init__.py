@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_PRODUCTION_SENSOR
+from .const import DOMAIN, CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_PRODUCTION_SENSOR, CONF_REFRESH_INTERVAL
 from homeassistant.const import CONF_IP_ADDRESS
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,7 +13,9 @@ PLATFORMS = ["sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    coordinator = TuyaMeterCoordinator(hass, entry.data)
+    # Pobierz interval z options (domyślnie 10s)
+    interval = int(entry.options.get(CONF_REFRESH_INTERVAL, 10))
+    coordinator = TuyaMeterCoordinator(hass, entry.data, timedelta(seconds=interval))
     await coordinator.async_config_entry_first_refresh()
 
     device_registry = dr.async_get(hass)
@@ -23,8 +25,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         manufacturer="Tuya",
         model=coordinator.data.get("19", "SPM02"),
         name=f"Licznik 3-fazowy",
-        sw_version=f"FW: {coordinator.data.get('32', '?')}",
-        configuration_url=f"http://{entry.data[CONF_IP_ADDRESS]}",
     )
     device_identifiers = device.identifiers
 
@@ -39,16 +39,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, config):
+    def __init__(self, hass, config, interval):
+        # Przechowujemy hass w klasie, żeby inne sensory mogły go używać
+        self._hass = hass
         super().__init__(
             hass,
-            logging.getLogger(__name__),
+            _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=10),
+            update_interval=interval,
         )
         self.config = config
         self.device = tinytuya.OutletDevice(
@@ -58,7 +60,7 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         try:
-            data = await self.hass.async_add_executor_job(self.device.status)
+            data = await self._hass.async_add_executor_job(self.device.status)
             if data is None or 'dps' not in data:
                 _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
                 raise UpdateFailed("Błąd komunikacji z licznikiem")
@@ -66,3 +68,14 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Błąd odczytu: %s", err)
             raise UpdateFailed(f"Błąd: {err}")
+
+    # Nowa metoda do ręcznego odświeżenia (można wywołać z usługi)
+    async def async_force_update(self):
+        """Wymuszaj odświeżenie danych bez oczekiwania na interwał."""
+        try:
+            data = await self._hass.async_add_executor_job(self.device.status)
+            if data is None or 'dps' not in data:
+                return
+            self.async_set_updated_data(data['dps'])
+        except Exception as err:
+            _LOGGER.debug("Błąd wymuszonego odświeżenia: %s", err)
