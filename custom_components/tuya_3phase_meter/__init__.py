@@ -32,28 +32,33 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         )
         self.config = config
         self.last_update_time = None
-        self.device = tinytuya.Device(
+        self.device = tinytuya.OutletDevice(
             config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY]
         )
         self.device.set_version(3.5)
-        self.device.set_socketTimeout(8)
-        # Licznik trzyma stare wartości, dopóki nie poprosisz o konkretne DP.
+        self.device.set_socketTimeout(10)
         self._refresh_dps = [1, 23, 32, 50, 102, 103, 104, 105, 106, 107, 108, 109, 110]
 
     def _read_meter(self):
         """Wymuś świeży pomiar, potem odczytaj status."""
         try:
-            self.device.updatedps(self._refresh_dps)
+            self.device.heartbeat(nowait=True)
+            self.device.updatedps(self._refresh_dps, nowait=False)
+            data = self.device.status()
+            _LOGGER.debug("Surowe dane z licznika: %s", data)
+            return data
         except Exception as err:
-            _LOGGER.debug("updatedps nieudane, idę dalej do status(): %s", err)
-        return self.device.status()
+            _LOGGER.debug("Błąd w _read_meter: %s", err)
+            return {}
 
     async def _async_update_data(self):
         try:
             data = await self.hass.async_add_executor_job(self._read_meter)
             if data is None or "dps" not in data:
-                _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
-                raise UpdateFailed("Błąd komunikacji z licznikiem")
+                # Nie rzucamy wyjątku, żeby nie przerywać pracy, jeśli chwilowy brak danych
+                _LOGGER.warning("Licznik nie zwrócił danych DPS: %s", data)
+                return {}
+
             self.last_update_time = datetime.now(timezone.utc)
             return data["dps"]
         except Exception as err:
