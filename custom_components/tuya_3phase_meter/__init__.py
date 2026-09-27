@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta, timezone
 import tinytuya
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -43,7 +43,8 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
             if data is None or 'dps' not in data:
                 _LOGGER.error("Błąd komunikacji z licznikiem: %s", data)
                 raise UpdateFailed("Błąd komunikacji z licznikiem")
-            self.last_update_time = datetime.now()
+            # timezone.utc — obowiązkowe dla sensorów TIMESTAMP w HA
+            self.last_update_time = datetime.now(timezone.utc)
             return data['dps']
         except Exception as err:
             _LOGGER.error("Błąd odczytu: %s", err)
