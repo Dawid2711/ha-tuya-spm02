@@ -1,6 +1,7 @@
 import logging
-import tinytuya
 import threading
+import tinytuya
+from datetime import datetime, timezone
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -11,40 +12,53 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    config = entry.data
-    coordinator = TuyaMeterCoordinator(hass, config)
+    coordinator = TuyaMeterCoordinator(hass, entry.data)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"coordinator": coordinator}
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
-
-    # Inicjalizacja połączenia
-    device = tinytuya.Device(config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY])
-    device.set_version(3.5)
-    device.set_socketPersistent(True)
-    device.set_socketTimeout(15)
-
-    def data_callback(data):
-        if data and 'dps' in data:
-            _LOGGER.debug("Otrzymano dane: %s", data['dps'])
-            hass.add_job(coordinator.async_set_updated_data, data['dps'])
-
-    device.add_has_returned_data_callback(data_callback)
-
-    # Uruchamiamy słuchanie w wątku
-    thread = threading.Thread(target=device.listen, daemon=True)
-    thread.start()
+    # Uruchamiamy coordinatora
+    await coordinator.async_config_entry_first_refresh()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator.stop()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 class TuyaMeterCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, config):
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=DOMAIN,
-            update_interval=None # Nie używamy pollingu!
-        )
-        self.data = {}
+        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None)
+        self.config = config
+        self.hass = hass
+        self.last_update_time = None
+        self.running = True
+
+        self.device = tinytuya.Device(config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY])
+        self.device.set_version(3.5)
+        self.device.set_socketPersistent(True)
+
+        self.thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self.thread.start()
+
+    def _listen_loop(self):
+        while self.running:
+            try:
+                # 1. Nasłuchiwanie na dane
+                data = self.device.receive()
+                if data and 'dps' in data:
+                    self.last_update_time = datetime.now(timezone.utc)
+                    self.hass.add_job(self.async_set_updated_data, data['dps'])
+
+                # 2. Jeśli brak danych, "puknij" do licznika
+                self.device.heartbeat(nowait=True)
+
+            except Exception as err:
+                _LOGGER.debug("Socket listener error: %s", err)
+                try: self.device.socket.close()
+                except: pass
+
+    def stop(self):
+        self.running = False
+        try: self.device.socket.close()
+        except: pass
