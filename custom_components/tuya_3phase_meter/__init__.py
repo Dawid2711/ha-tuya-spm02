@@ -32,31 +32,33 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
         )
         self.config = config
         self.last_update_time = None
-
-        # Inicjalizacja z wyłączoną trwałością połączenia
-        self.device = tinytuya.Device(
-            config[CONF_DEVICE_ID], config[CONF_IP_ADDRESS], config[CONF_LOCAL_KEY]
-        )
-        self.device.set_version(3.5)
-        self.device.set_socketTimeout(5)
-        self.device.set_socketPersistent(False) # Kluczowe: nowe połączenie za każdym razem
         self._refresh_dps = [1, 23, 32, 50, 102, 103, 104, 105, 106, 107, 108, 109, 110]
 
     def _read_meter(self):
+        """Tworzy świeże połączenie za każdym razem — gwarancja aktualności."""
         try:
-            # Wymuszamy odświeżenie danych DPS
-            self.device.updatedps(self._refresh_dps, nowait=True)
-            data = self.device.status()
+            device = tinytuya.Device(
+                self.config[CONF_DEVICE_ID],
+                self.config[CONF_IP_ADDRESS],
+                self.config[CONF_LOCAL_KEY]
+            )
+            device.set_version(3.5)
+            device.set_socketTimeout(5)
+
+            # Wymuś odświeżenie danych DPS i pobierz status
+            device.updatedps(self._refresh_dps, nowait=True)
+            data = device.status()
+
             return data
         except Exception as err:
-            _LOGGER.debug("Błąd odczytu: %s", err)
+            _LOGGER.debug("Błąd w _read_meter: %s", err)
             return {}
 
     async def _async_update_data(self):
         try:
             data = await self.hass.async_add_executor_job(self._read_meter)
             if data is None or "dps" not in data:
-                _LOGGER.warning("Brak danych DPS")
+                _LOGGER.warning("Licznik nie zwrócił danych DPS")
                 return {}
 
             self.last_update_time = datetime.now(timezone.utc)
