@@ -15,9 +15,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = TuyaMeterCoordinator(hass, entry.data)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"coordinator": coordinator}
 
-    # Uruchamiamy coordinatora
-    await coordinator.async_config_entry_first_refresh()
-
+    # Koordynator jest aktualizowany przez wątek w tle, nie przez polling
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -44,21 +42,25 @@ class TuyaMeterCoordinator(DataUpdateCoordinator):
     def _listen_loop(self):
         while self.running:
             try:
-                # 1. Nasłuchiwanie na dane
+                # Nasłuchuj na dane PUSH od licznika
                 data = self.device.receive()
                 if data and 'dps' in data:
                     self.last_update_time = datetime.now(timezone.utc)
                     self.hass.add_job(self.async_set_updated_data, data['dps'])
 
-                # 2. Jeśli brak danych, "puknij" do licznika
+                # Heartbeat żeby utrzymać połączenie
                 self.device.heartbeat(nowait=True)
 
             except Exception as err:
                 _LOGGER.debug("Socket listener error: %s", err)
-                try: self.device.socket.close()
-                except: pass
+                try:
+                    self.device.socket.close()
+                except Exception:
+                    pass
 
     def stop(self):
         self.running = False
-        try: self.device.socket.close()
-        except: pass
+        try:
+            self.device.socket.close()
+        except Exception:
+            pass
