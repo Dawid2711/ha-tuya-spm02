@@ -34,8 +34,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         for name, dp, unit, scale, dev_class, state_class in sensors_config
     ]
 
-    # Dodajemy sensor autokonsumpcji, jeśli skonfigurowano sensor produkcji (w options)
-    prod_sensor_id = entry.options.get("production_sensor")
+    # Sensor produkcji może być w opcjach albo w danych z pierwszej konfiguracji
+    prod_sensor_id = entry.options.get("production_sensor") or entry.data.get("production_sensor")
     if prod_sensor_id:
         entities.append(SelfConsumptionSensor(coordinator, prod_sensor_id, entry.entry_id))
 
