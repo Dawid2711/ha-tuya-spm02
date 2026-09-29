@@ -14,16 +14,23 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
     sensors_config = [
+        # Ogólne
         ("Total Energy Forward", "1", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
         ("Total Energy Reverse", "23", UnitOfEnergy.KILO_WATT_HOUR, 100, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
         ("Frequency", "32", UNIT_HERTZ, 100, None, SensorStateClass.MEASUREMENT),
         ("Power Factor", "50", None, 100, None, SensorStateClass.MEASUREMENT),
+
+        # Faza L1
         ("Voltage L1", "102", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
         ("Current L1", "103", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
         ("Power L1", "104", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+
+        # Faza L2
         ("Voltage L2", "105", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
         ("Current L2", "106", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
         ("Power L2", "107", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+
+        # Faza L3
         ("Voltage L3", "108", UNIT_VOLT, 10, SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT),
         ("Current L3", "109", UNIT_AMPERE, 1000, SensorDeviceClass.CURRENT, SensorStateClass.MEASUREMENT),
         ("Power L3", "110", UnitOfPower.KILO_WATT, 1000, SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
@@ -33,11 +40,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         TuyaMeterSensor(coordinator, name, dp, unit, scale, dev_class, state_class, entry.entry_id)
         for name, dp, unit, scale, dev_class, state_class in sensors_config
     ]
-
-    # Sensor produkcji może być w opcjach albo w danych z pierwszej konfiguracji
-    prod_sensor_id = entry.options.get("production_sensor") or entry.data.get("production_sensor")
-    if prod_sensor_id:
-        entities.append(SelfConsumptionSensor(coordinator, prod_sensor_id, entry.entry_id))
 
     entities.append(LastUpdateSensor(coordinator, entry.entry_id))
     async_add_entities(entities)
@@ -58,25 +60,6 @@ class TuyaMeterSensor(SensorEntity):
     def native_value(self):
         val = self.coordinator.data.get(self._dp)
         return round(val / self._scale, 3) if val is not None else None
-
-class SelfConsumptionSensor(SensorEntity):
-    def __init__(self, coordinator, prod_sensor_id, entry_id):
-        self.coordinator = coordinator
-        self._prod_sensor_id = prod_sensor_id
-        self._attr_name = "Autokonsumpcja (Energia)"
-        self._attr_unique_id = f"{entry_id}_self_consumption"
-        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-        self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
-        self._attr_device_info = {"identifiers": {(DOMAIN, entry_id)}}
-
-    @property
-    def native_value(self):
-        reverse_energy = self.coordinator.data.get("23")
-        prod_state = self.hass.states.get(self._prod_sensor_id)
-        if reverse_energy is None or prod_state is None or prod_state.state in ["unavailable", "unknown"]:
-            return None
-        return max(0, float(prod_state.state) - (reverse_energy / 100))
 
 class LastUpdateSensor(SensorEntity):
     def __init__(self, coordinator, entry_id):
